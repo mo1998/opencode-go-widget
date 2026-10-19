@@ -5,6 +5,7 @@ npm-debug.log*
 config.json
 key
 *.local.json
+.wrangler
 .cache
 README.md
 deploy

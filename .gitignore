@@ -1,7 +1,11 @@
 # Local secrets / machine-specific config — never commit these
 config.json
 key
+widget.env
 *.local.json
+
+# Wrangler's local cache: contains your account id and account name
+.wrangler/
 
 node_modules/
 npm-debug.log*
