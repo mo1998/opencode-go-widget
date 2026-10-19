@@ -10,7 +10,12 @@
  */
 
 const ENDPOINT = 'https://opencode.ai/zen/go/v1/usage';
-const FRESH_TTL = 60; // seconds
+
+// Keep this short. The cache exists only to collapse bursts from several
+// devices polling at once — NOT to save upstream load. Cloudflare's Cache API
+// is per-colo, so a long TTL makes different requests serve different ages and
+// the number can visibly trail (or jump back behind) the web console.
+const FRESH_TTL = 15; // seconds
 const LAST_GOOD_TTL = 86400;
 
 const WINDOWS = ['rolling', 'weekly', 'monthly'];
@@ -166,10 +171,19 @@ async function fetchUsage(env) {
   }
 }
 
+function withAge(body) {
+  const fetched = body && body.fetchedAt ? Date.parse(body.fetchedAt) : NaN;
+  return {
+    ...body,
+    // Never claim "0 seconds old" for a cached body — report the real age.
+    ageSeconds: Number.isNaN(fetched) ? null : Math.max(0, Math.round((Date.now() - fetched) / 1000)),
+  };
+}
+
 async function getSnapshot(env, { force = false } = {}) {
   if (!force) {
     const fresh = await readCache('fresh');
-    if (fresh) return fresh;
+    if (fresh) return withAge(fresh);
   }
 
   try {

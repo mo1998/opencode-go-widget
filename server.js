@@ -37,7 +37,10 @@ const PUBLIC_DIR = path.join(PROJECT_DIR, 'public');
 const DEFAULTS = {
   host: '0.0.0.0',
   port: 8787,
-  cacheSeconds: 60,
+  // Deliberately short: a long cache makes the widget trail the web console,
+  // which reads the same meters at full precision. One user polling a 3-table
+  // join every 20s is nothing.
+  cacheSeconds: 20,
   clientRefreshSeconds: 30,
   requestTimeoutMs: 15000,
   endpoint: DEFAULT_ENDPOINT,

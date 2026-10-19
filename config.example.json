@@ -10,8 +10,8 @@
   "//authToken": "Optional shared secret. If set, the page and API require ?token=... (the browser remembers it). Leave empty for an open LAN service.",
   "authToken": "",
 
-  "//cacheSeconds": "Server-side cache TTL. Claude-style endpoints dislike hot polling; 60s is plenty.",
-  "cacheSeconds": 60,
+  "//cacheSeconds": "Server-side cache TTL. Keep it short (15-30s) or the widget will trail the web console. It only exists to collapse bursts from several devices.",
+  "cacheSeconds": 20,
 
   "//clientRefreshSeconds": "How often the web page re-fetches from this server.",
   "clientRefreshSeconds": 30,

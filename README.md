@@ -326,12 +326,52 @@ widget never blanks out or shows a confident zero.
 
 ---
 
+## Why the widget can differ from the web console
+
+Short version: **it reports what OpenCode's API returns, verbatim — and that API
+is coarser than the console.**
+
+Measured, not guessed. At 06:34 UTC the raw endpoint, called directly with no
+widget, no cache and no server involved, returned:
+
+```json
+{"usage": {"rolling": {"percent": 4}, "weekly": {"percent": 1}}}
+```
+
+while the web console was showing **5%** and **2%**. A minute later the same raw
+endpoint returned `5` and `2`. Two things are going on:
+
+- **The endpoint returns whole numbers** (`percent` is an integer, never `4.6`).
+  The console reads the same meters through the console API, which exposes exact
+  `usedMicroCents` / `limitMicroCents`, so it can display a value the integer
+  endpoint hasn't rounded to yet.
+- **OpenCode caches quota server-side.** The maintainers note in the endpoint's
+  PR that they cache subscription quota for a few minutes, so the API can trail
+  the console.
+
+So the widget can read **at or slightly below** the console, by about one point,
+until the API catches up. Nothing is being mis-parsed or lost.
+
+What the widget does about it:
+
+- The server/edge cache is only **15–20 s**, down from 60 s, and exists purely to
+  collapse bursts when several devices poll at once. It no longer adds any
+  noticeable lag of its own.
+- The footer reports the **true** data age (`updated 12s ago`), and tapping ↻
+  bypasses the cache and fetches live.
+
+If you need numbers that match the console exactly, the fix is to read the
+console's own endpoint — `GET https://opencode.ai/console/api/go/status` with
+`x-org-id: wrk_…` and your `__Host-console_session` cookie, which returns exact
+micro-cent amounts. That trades key-based auth for a browser cookie that
+expires, which is why it isn't the default.
+
 ## Behavior notes
 
 - **Thresholds:** green under 70 %, amber 70–89 %, red 90 %+ (or when the API
   reports a window as limited).
-- **Caching:** the server caches for 60 s regardless of how many devices poll,
-  so a phone plus a laptop still costs one request per minute at most.
+- **Caching:** the server caches for 15–20 s regardless of how many devices
+  poll, so a phone plus a laptop still costs one upstream request per window.
 - **Unofficial endpoint:** `/zen/go/v1/usage` powers the OpenCode console but is
   not in the public Go docs. If it changes, the widget reports the failure
   rather than inventing numbers.

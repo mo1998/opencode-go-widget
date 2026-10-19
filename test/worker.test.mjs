@@ -129,6 +129,34 @@ const ok = (name, cond) => {
   ok('rejects wrong token', (await call('/api/usage', secured, { 'x-auth-token': 'x' })).status === 401);
 }
 
+// ---- served age is real, not hardcoded --------------------------------
+
+{
+  const thirtyAgo = new Date(Date.now() - 30000).toISOString();
+  const stale = {
+    usage: GOOD.usage,
+    fetchedAt: thirtyAgo,
+    ageSeconds: 0, // what the old code always claimed
+    stale: false,
+    error: null,
+    errorCode: null,
+    worstPercent: 91,
+    hasKey: true,
+    keySource: 'worker secret',
+  };
+  cacheStore.set(
+    'https://opencode-go-widget.internal/__cache/fresh',
+    new Response(JSON.stringify(stale), {
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=15' },
+    }),
+  );
+  upstreamCalls = 0;
+  const body = await (await call('/api/usage')).json();
+  ok('cache hit reports the true data age', body.ageSeconds >= 30);
+  ok('cache hit still avoids a redundant upstream call', upstreamCalls === 0);
+  cacheStore.clear();
+}
+
 // ---- misc ------------------------------------------------------------------
 
 {
