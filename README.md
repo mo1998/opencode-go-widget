@@ -383,8 +383,16 @@ npx wrangler secret put OPENCODE_ORG_ID
 ```
 
 Note the trade-off: that token is a session credential that expires, so you'd
-re-upload it periodically. Without it the Worker stays accurate to within one
-point and says so.
+re-upload it periodically. There's a script for exactly that:
+
+```bash
+./scripts/sync-console-secret.sh    # re-reads opencode.db, re-uploads both secrets
+```
+
+Run it whenever the Worker starts reporting `"source":"key"` again (roughly
+monthly). It prints the session's expiry date and refuses to upload an expired
+token. Without console secrets the Worker still works — accurate to within one
+point, and labelled as such.
 
 ## Behavior notes
 
@@ -410,6 +418,7 @@ lib/usage.js                  key detection + usage fetching + formatting
 public/                       the web UI (no build step)
 scripts/install-service.sh    systemd user service
 scripts/windows-portproxy.ps1 WSL2 → LAN port forward for phones
+scripts/sync-console-secret.sh refresh the Worker's console session
 Dockerfile                    container image for an always-on host
 docker-compose.yml            compose service (binds to 127.0.0.1)
 deploy/Caddyfile              HTTPS reverse proxy example
