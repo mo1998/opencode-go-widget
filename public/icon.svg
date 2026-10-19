@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="OpenCode Go usage">
+  <rect width="512" height="512" rx="112" fill="#0b0d12"/>
+  <g transform="translate(256 256)">
+    <circle r="150" fill="none" stroke="#242b3c" stroke-width="34"/>
+    <circle r="150" fill="none" stroke="#7c9cff" stroke-width="34" stroke-linecap="round"
+            stroke-dasharray="707 943" transform="rotate(-90)"/>
+    <circle r="88" fill="none" stroke="#242b3c" stroke-width="26"/>
+    <circle r="88" fill="none" stroke="#34d399" stroke-width="26" stroke-linecap="round"
+            stroke-dasharray="360 553" transform="rotate(-90)"/>
+  </g>
+  <text x="256" y="286" text-anchor="middle" fill="#e8ebf2"
+        font-family="-apple-system,Segoe UI,Roboto,sans-serif" font-size="120" font-weight="700">G</text>
+</svg>

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0b0d12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Go Usage">
+<title>OpenCode Go Usage</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.svg">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main class="wrap" id="app" aria-busy="true">
+
+  <header class="head">
+    <div class="brand">
+      <span class="dot" id="statusDot" data-sev="ok"></span>
+      <div class="brand-text">
+        <h1>OpenCode&nbsp;Go</h1>
+        <p class="sub" id="subtitle">Connecting…</p>
+      </div>
+    </div>
+    <div class="head-right">
+      <div class="worst">
+        <span class="worst-num" id="worstNum">–</span>
+        <span class="worst-label">peak</span>
+      </div>
+      <button class="icon-btn" id="refreshBtn" type="button" title="Refresh now" aria-label="Refresh now">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+            d="M20 11a8 8 0 1 0-.6 3M20 5v6h-6"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="banner" id="banner" hidden></div>
+
+  <section class="cards" id="cards">
+    <!-- filled by app.js -->
+  </section>
+
+  <footer class="foot">
+    <span id="updated">Waiting for data…</span>
+    <span class="sep">·</span>
+    <span id="autorefresh">auto 30s</span>
+  </footer>
+
+  <!-- Shown only when the server requires a token the browser doesn't have yet -->
+  <section class="auth" id="authPanel" hidden>
+    <h2>Access token required</h2>
+    <p>This widget is protected. Paste the token configured on the server.</p>
+    <form id="authForm">
+      <input id="authInput" type="password" placeholder="token" autocomplete="off" spellcheck="false">
+      <button type="submit">Unlock</button>
+    </form>
+  </section>
+
+</main>
+<script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+# Local secrets / machine-specific config — never commit these
+config.json
+key
+*.local.json
+
+node_modules/
+npm-debug.log*
+.DS_Store
+
+# Runtime cache
+.cache/
