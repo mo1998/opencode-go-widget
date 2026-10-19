@@ -1,0 +1,4 @@
+{
+  "//": "Scopes ES module semantics to the Worker folder so the repo root can stay CommonJS.",
+  "type": "module"
+}

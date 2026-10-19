@@ -116,6 +116,9 @@ inside WSL. Every option below moves the *viewer* to something that stays up.
 > Closing the lid on Windows almost always **suspends** the machine, which stops
 > WSL2 entirely. No config change makes WSL survive that.
 
+**Free with zero hardware? Option C.** No card, no machine, nothing to keep
+running. Option A is also free if you already pay for an always-on box.
+
 ### A. Tailscale — recommended if you already have a server
 
 Works on your VPS, home server, Raspberry Pi, or that always-on SSH dev box. No
@@ -174,15 +177,15 @@ npx wrangler secret put AUTH_TOKEN          # optional
 npx wrangler deploy
 ```
 
-It serves the same UI from `public/` and caches at the edge for 60 s, so a
-glance from your phone costs a fraction of a request. Free plan = 100k
-requests/day, which is a lot of glances.
+It serves the same UI straight out of `public/` (verified against Wrangler 4 —
+`total upload: 6.68 KiB`) and caches at the edge for 60 s, so a glance from your
+phone is a fraction of a request. The free plan allows 100k requests/day and
+needs no credit card, so this is the cheapest honest answer to "always on".
 
-If `wrangler` refuses the asset path pointing outside its own folder, copy the
-UI next to the worker and shorten the path in `wrangler.toml`:
+Test it before you trust it:
 
 ```bash
-cp -r ../../public ./public   # then set directory = "public"
+npm test        # 23 assertions: routing, auth, edge cache, stale fallback
 ```
 
 ### D. Keeping WSL awake instead

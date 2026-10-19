@@ -11,7 +11,8 @@
   "scripts": {
     "start": "node server.js",
     "cli": "node cli.js",
-    "watch": "node cli.js --watch"
+    "watch": "node cli.js --watch",
+    "test": "node test/worker.test.mjs"
   },
   "engines": {
     "node": ">=20"
