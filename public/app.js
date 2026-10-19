@@ -132,7 +132,6 @@ function cardMarkup(win, data) {
   const percent = w ? w.percent : 0;
   const status = w ? w.status : 'unknown';
   const limited = status !== 'ok' && status !== 'unknown';
-  const e = data && data.exact ? data.exact[win.key] : null;
 
   return `
     <article class="card${w ? '' : ' skeleton'}" data-win="${win.key}" data-state="${limited ? 'limited' : 'ok'}">
@@ -149,7 +148,6 @@ function cardMarkup(win, data) {
         <span class="reset">resets in <b data-reset-key="${win.key}">–</b></span>
         <span class="abs" data-abs-key="${win.key}">–</span>
       </div>
-      ${e ? `<div class="exact">$${e.used.toFixed(2)} of $${e.limit.toFixed(2)} &middot; ${e.percent}% exact</div>` : ''}
     </article>`;
 }
 

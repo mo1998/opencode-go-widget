@@ -193,14 +193,6 @@ body {
 .card-meta .reset b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
 .card-meta .abs { font-variant-numeric: tabular-nums; color: var(--muted-2); }
 
-.exact {
-  margin-top: 7px;
-  font-size: 11.5px;
-  color: var(--muted-2);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: .01em;
-}
-
 .card[data-state="limited"] .card-pct { color: var(--crit); }
 .pill-limited {
   position: absolute;
