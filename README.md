@@ -408,8 +408,10 @@ This service reads your usage, so it is worth being precise about the surface:
 - **No HTML injection.** Values from the API are coerced to clamped numbers and
   the client writes them as text, not markup.
 - **Static file serving is confined** to `public/`; traversal attempts return 404.
-- **Forced refreshes are rate-limited** to one per 5s, so an exposed instance
-  cannot be used to hammer `opencode.ai`.
+- **Forced refreshes are rate-limited** to one per 5s. The local server enforces
+  this strictly; on the Cloudflare Worker it is best-effort, because Workers'
+  edge cache is per-colo and not immediately consistent. Treat it as a courtesy
+  limit, not a hard guarantee.
 - **Token comparison is constant-time** when `authToken` is set.
 
 The main thing to decide is exposure:
