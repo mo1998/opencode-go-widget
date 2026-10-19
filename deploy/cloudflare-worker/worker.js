@@ -21,6 +21,9 @@ const USER_AGENT =
 const FRESH_TTL = 15; // seconds
 const LAST_GOOD_TTL = 86400;
 
+// A forced refresh must not be usable to hammer the upstream API.
+const FORCE_REFRESH_FLOOR_MS = 5000;
+
 const WINDOWS = ['rolling', 'weekly', 'monthly'];
 
 // ---------------------------------------------------------------------------
@@ -284,9 +287,14 @@ function withAge(body) {
 }
 
 async function getSnapshot(env, { force = false } = {}) {
-  if (!force) {
-    const fresh = await readCache('fresh');
-    if (fresh) return withAge(fresh);
+  // Non-forced reads take any live cache entry. Forced reads only take one
+  // that is younger than the floor, so /api/refresh can't be used to hammer
+  // opencode.ai. Imperceptible in normal use.
+  const cached = await readCache('fresh');
+  if (cached) {
+    const age = Date.now() - Date.parse(cached.fetchedAt || 0);
+    const withinFloor = Number.isFinite(age) && age < FORCE_REFRESH_FLOOR_MS;
+    if (!force || withinFloor) return withAge(cached);
   }
 
   const hasConsole = Boolean(env.OPENCODE_CONSOLE_TOKEN && env.OPENCODE_ORG_ID);

@@ -26,12 +26,16 @@ const {
   UsageError,
   configPaths,
   fetchUsageSmart,
+  sanitizeSource,
   worstPercent,
 } = require('./lib/usage');
 
 const VERSION = '1.0.0';
 const PROJECT_DIR = __dirname;
 const PUBLIC_DIR = path.join(PROJECT_DIR, 'public');
+
+// A forced refresh must not be usable to hammer the upstream API.
+const FORCE_REFRESH_FLOOR_MS = 5000;
 
 const DEFAULTS = {
   host: '0.0.0.0',
@@ -133,6 +137,12 @@ function isFresh() {
 }
 
 async function refresh({ force = false } = {}) {
+  // Rate-limit forced refreshes so an exposed instance cannot be used to
+  // hammer opencode.ai. Imperceptible in normal use.
+  if (force && snapshot.fetchedAt && Date.now() - snapshot.fetchedAt < FORCE_REFRESH_FLOOR_MS) {
+    return publicSnapshot();
+  }
+
   if (!force && isFresh()) return publicSnapshot();
 
   if (inflight) return inflight;
@@ -175,7 +185,6 @@ function publicSnapshot() {
     exact: snapshot.exact,
     periodEndsAt: snapshot.periodEndsAt,
     source: snapshot.source,
-    sourceDetail: snapshot.sourceDetail,
     note: snapshot.note,
     fetchedAt: snapshot.fetchedAt ? new Date(snapshot.fetchedAt).toISOString() : null,
     ageSeconds: snapshot.fetchedAt ? Math.round(snapshotAge() / 1000) : null,
@@ -184,7 +193,8 @@ function publicSnapshot() {
     errorCode: snapshot.errorCode,
     worstPercent: usage ? worstPercent(usage) : null,
     hasKey: HAS_KEY,
-    keySource: snapshot.sourceDetail || null,
+    // Never disclose local paths over HTTP. The raw detail stays server-side.
+    keySource: sanitizeSource(snapshot.sourceDetail),
   };
 }
 
@@ -265,7 +275,7 @@ async function handleApi(req, res, url) {
       version: VERSION,
       hasKey: HAS_KEY,
       source: SOURCE.source,
-      keySource: SOURCE.detail,
+      keySource: sanitizeSource(SOURCE.detail),
       fetchedAt: snapshot.fetchedAt ? new Date(snapshot.fetchedAt).toISOString() : null,
     });
   }
@@ -352,6 +362,10 @@ async function main() {
   console.log(`  source    ${sourceLine}`);
   console.log(`  cache     ${CONFIG.cacheSeconds}s server · ${CONFIG.clientRefreshSeconds}s page`);
   if (CONFIG.authToken) console.log(`  auth      token required (kept out of the URL after first load)`);
+  if (CONFIG.host === '0.0.0.0' && !CONFIG.authToken) {
+    console.log(`  warning   bound to 0.0.0.0 with no token — anyone on this network`);
+    console.log(`            can read your usage. Set authToken / --token to require one.`);
+  }
   console.log(`  ─────────────────────────────────────────────`);
   console.log(`  Ctrl-C to stop.\n`);
 

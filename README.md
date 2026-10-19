@@ -394,6 +394,36 @@ monthly). It prints the session's expiry date and refuses to upload an expired
 token. Without console secrets the Worker still works — accurate to within one
 point, and labelled as such.
 
+## Security notes
+
+This service reads your usage, so it is worth being precise about the surface:
+
+- **Your credentials never leave the machine you run it on.** The API key and the
+  console session are read from opencode's own storage on each fetch and are sent
+  only to `opencode.ai`.
+- **Nothing credential-shaped is ever returned over HTTP.** Responses contain
+  percentages and reset times only. Credential *sources* are reduced to labels
+  (`opencode database`, `env:OPENCODE_GO_API_KEY`) rather than paths, so an
+  exposed instance cannot be used to fingerprint your host or username.
+- **No HTML injection.** Values from the API are coerced to clamped numbers and
+  the client writes them as text, not markup.
+- **Static file serving is confined** to `public/`; traversal attempts return 404.
+- **Forced refreshes are rate-limited** to one per 5s, so an exposed instance
+  cannot be used to hammer `opencode.ai`.
+- **Token comparison is constant-time** when `authToken` is set.
+
+The main thing to decide is exposure:
+
+| Setup | Who can read your usage |
+|---|---|
+| `node server.js` (defaults) | anyone on the same network |
+| `--token <secret>` | only someone holding the token |
+| Tailscale only | only your devices |
+| Cloudflare Worker | anyone with the URL, unless `AUTH_TOKEN` is set |
+
+The server prints a warning when it is bound to `0.0.0.0` with no token, and the
+Docker compose file binds to `127.0.0.1`. If you expose it, set a token.
+
 ## Behavior notes
 
 - **Thresholds:** green under 70 %, amber 70–89 %, red 90 %+ (or when the API

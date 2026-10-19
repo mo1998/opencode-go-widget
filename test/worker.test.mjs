@@ -130,11 +130,33 @@ const ok = (name, cond) => {
   ok('second request served from edge cache (no extra upstream call)', upstreamCalls === 1);
 }
 
-// ---- force refresh ---------------------------------------------------------
+// ---- forced refresh + abuse floor ------------------------------------------
 
 {
+  // Within the floor a forced refresh is served from cache...
   await call('/api/refresh');
-  ok('/api/refresh bypasses the cache', upstreamCalls === 2);
+  ok('refresh within the 5s floor does not hit upstream', upstreamCalls === 1);
+
+  // ...past it, refresh does go upstream.
+  const older = {
+    usage: GOOD.usage,
+    fetchedAt: new Date(Date.now() - 10000).toISOString(),
+    ageSeconds: 10,
+    stale: false,
+    error: null,
+    errorCode: null,
+    worstPercent: 91,
+    hasKey: true,
+    keySource: 'worker secret',
+  };
+  cacheStore.set(
+    'https://opencode-go-widget.internal/__cache/fresh',
+    new Response(JSON.stringify(older), {
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=15' },
+    }),
+  );
+  await call('/api/refresh');
+  ok('refresh past the floor hits upstream', upstreamCalls === 2);
 }
 
 // ---- stale fallback --------------------------------------------------------
