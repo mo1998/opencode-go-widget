@@ -30,14 +30,57 @@ const GOOD = {
   },
 };
 
+// Real values captured from the live console endpoint, where the key-based API
+// floored to 5 / 2 / 47 but the console displayed 6 / 2 / 48.
+const CONSOLE_PAYLOAD = {
+  access: {
+    endsAt: '2026-10-22T07:03:14.000Z',
+    meters: {
+      fiveHour: {
+        resetsAt: '2026-10-19T10:41:37.000Z',
+        limitMicroCents: '1200000000',
+        usedMicroCents: '70030000', //  5.8358%
+      },
+      week: {
+        resetsAt: '2026-10-26T00:00:00.000Z',
+        limitMicroCents: '3000000000',
+        usedMicroCents: '70030000', //  2.3343%
+      },
+      month: {
+        resetsAt: '2026-10-22T07:03:14.000Z',
+        limitMicroCents: '6000000000',
+        usedMicroCents: '2857050000', // 47.6175%
+      },
+    },
+  },
+};
+
+const KEY_FLOORED = {
+  usage: {
+    rolling: { status: 'ok', percent: 5, resetsAt: '2026-10-19T10:41:37.000Z' },
+    weekly: { status: 'ok', percent: 2, resetsAt: '2026-10-26T00:00:00.000Z' },
+    monthly: { status: 'ok', percent: 47, resetsAt: '2026-10-22T07:03:14.000Z' },
+  },
+};
+
+let keyPayload = GOOD;
+
 const realFetch = globalThis.fetch;
 globalThis.fetch = async (url) => {
-  if (String(url).includes('opencode.ai')) {
+  const target = String(url);
+  if (target.includes('/console/api/')) {
     upstreamCalls += 1;
-    if (upstreamMode === 'ok') {
-      return new Response(JSON.stringify(GOOD), { status: 200 });
+    if (upstreamMode === 'fail' || upstreamMode === 'console-fail') {
+      return new Response('nope', { status: 401 });
     }
-    return new Response('nope', { status: 429 });
+    return new Response(JSON.stringify(CONSOLE_PAYLOAD), { status: 200 });
+  }
+  if (target.includes('opencode.ai')) {
+    upstreamCalls += 1;
+    if (upstreamMode === 'fail') {
+      return new Response('nope', { status: 429 });
+    }
+    return new Response(JSON.stringify(keyPayload), { status: 200 });
   }
   return realFetch(url);
 };
@@ -154,6 +197,57 @@ const ok = (name, cond) => {
   const body = await (await call('/api/usage')).json();
   ok('cache hit reports the true data age', body.ageSeconds >= 30);
   ok('cache hit still avoids a redundant upstream call', upstreamCalls === 0);
+  cacheStore.clear();
+}
+
+// ---- console-accurate mode -------------------------------------------------
+
+{
+  const CONSOLE_ENV = {
+    ...ENV,
+    OPENCODE_CONSOLE_TOKEN: 'oauth-token',
+    OPENCODE_ORG_ID: 'wrk_test0000000000000000000000',
+  };
+
+  cacheStore.clear();
+  upstreamMode = 'ok';
+  const res = await call('/api/usage', CONSOLE_ENV);
+  const body = await res.json();
+
+  ok('console mode reports source=console', body.source === 'console');
+  ok('rolling matches the console (round, not floor): 6', body.usage.rolling.percent === 6);
+  ok('weekly matches the console: 2', body.usage.weekly.percent === 2);
+  ok('monthly matches the console: 48', body.usage.monthly.percent === 48);
+  ok('exposes exact dollars', Math.abs(body.exact.rolling.used - 0.7003) < 1e-9);
+  ok('exposes exact limit', body.exact.rolling.limit === 12);
+  ok('exposes the exact percent', body.exact.rolling.percent === 5.84);
+  ok('no fallback note when the console works', body.note === null);
+
+  // The key-only path must still floor, which is exactly the console mismatch.
+  cacheStore.clear();
+  keyPayload = KEY_FLOORED;
+  const keyOnly = await (await call('/api/usage', ENV)).json();
+  ok('key mode floors (the original mismatch): 5/2/47',
+    keyOnly.usage.rolling.percent === 5 &&
+      keyOnly.usage.weekly.percent === 2 &&
+      keyOnly.usage.monthly.percent === 47);
+  ok('key mode reports source=key', keyOnly.source === 'key');
+  ok('console mode and key mode differ by the expected 1 point on rolling/monthly',
+    body.usage.rolling.percent - keyOnly.usage.rolling.percent === 1 &&
+      body.usage.monthly.percent - keyOnly.usage.monthly.percent === 1);
+  ok('weekly is equal in both (would have been 3 with ceil — proving round, not ceil)',
+    body.usage.weekly.percent === keyOnly.usage.weekly.percent);
+
+  // An expired/rejected console session must degrade, not fail.
+  cacheStore.clear();
+  keyPayload = GOOD;
+  upstreamMode = 'console-fail';
+  const degraded = await (await call('/api/usage', CONSOLE_ENV)).json();
+  ok('rejected console session falls back to the key API', degraded.source === 'key');
+  ok('fallback still returns data', degraded.usage && degraded.usage.rolling.percent === 12);
+  ok('fallback is explained in a note',
+    typeof degraded.note === 'string' && degraded.note.includes('Console session'));
+  upstreamMode = 'ok';
   cacheStore.clear();
 }
 

@@ -25,8 +25,7 @@ const {
   DEFAULT_ENDPOINT,
   UsageError,
   configPaths,
-  fetchUsage,
-  resolveApiKey,
+  fetchUsageSmart,
   worstPercent,
 } = require('./lib/usage');
 
@@ -103,7 +102,8 @@ function loadConfig() {
 }
 
 const CONFIG = loadConfig();
-let API_KEY = { key: null, source: null };
+let HAS_KEY = false;
+let SOURCE = { source: null, detail: null };
 
 // ---------------------------------------------------------------------------
 // Snapshot cache
@@ -111,6 +111,11 @@ let API_KEY = { key: null, source: null };
 
 const snapshot = {
   usage: null,
+  exact: null,
+  periodEndsAt: null,
+  source: null,
+  sourceDetail: null,
+  note: null,
   fetchedAt: 0,
   stale: false,
   error: null,
@@ -128,30 +133,30 @@ function isFresh() {
 }
 
 async function refresh({ force = false } = {}) {
-  if (!API_KEY.key) {
-    API_KEY = await resolveApiKey(CONFIG, PROJECT_DIR);
-  }
-
   if (!force && isFresh()) return publicSnapshot();
 
   if (inflight) return inflight;
 
   inflight = (async () => {
     try {
-      const usage = await fetchUsage({
-        apiKey: API_KEY.key,
-        endpoint: CONFIG.endpoint,
-        timeoutMs: CONFIG.requestTimeoutMs,
-      });
-      snapshot.usage = usage;
+      const result = await fetchUsageSmart({ config: CONFIG, projectDir: PROJECT_DIR });
+      snapshot.usage = result.usage;
+      snapshot.exact = result.exact;
+      snapshot.periodEndsAt = result.periodEndsAt;
+      snapshot.source = result.source;
+      snapshot.sourceDetail = result.sourceDetail;
+      snapshot.note = result.note;
       snapshot.fetchedAt = Date.now();
       snapshot.stale = false;
       snapshot.error = null;
       snapshot.errorCode = null;
+      HAS_KEY = true;
+      SOURCE = { source: result.source, detail: result.sourceDetail };
     } catch (err) {
       const known = err instanceof UsageError;
       snapshot.error = known ? err.message : 'Unexpected error';
       snapshot.errorCode = known ? err.code : 'error';
+      if (snapshot.errorCode === 'no-key') HAS_KEY = false;
       // Keep showing the last good numbers, flagged stale.
       snapshot.stale = snapshot.usage != null;
     } finally {
@@ -167,14 +172,19 @@ function publicSnapshot() {
   const usage = snapshot.usage;
   return {
     usage,
+    exact: snapshot.exact,
+    periodEndsAt: snapshot.periodEndsAt,
+    source: snapshot.source,
+    sourceDetail: snapshot.sourceDetail,
+    note: snapshot.note,
     fetchedAt: snapshot.fetchedAt ? new Date(snapshot.fetchedAt).toISOString() : null,
     ageSeconds: snapshot.fetchedAt ? Math.round(snapshotAge() / 1000) : null,
     stale: snapshot.stale,
     error: snapshot.error,
     errorCode: snapshot.errorCode,
     worstPercent: usage ? worstPercent(usage) : null,
-    hasKey: Boolean(API_KEY.key),
-    keySource: API_KEY.source || null,
+    hasKey: HAS_KEY,
+    keySource: snapshot.sourceDetail || null,
   };
 }
 
@@ -253,8 +263,9 @@ async function handleApi(req, res, url) {
     return send(res, 200, {
       ok: true,
       version: VERSION,
-      hasKey: Boolean(API_KEY.key),
-      keySource: API_KEY.source || null,
+      hasKey: HAS_KEY,
+      source: SOURCE.source,
+      keySource: SOURCE.detail,
       fetchedAt: snapshot.fetchedAt ? new Date(snapshot.fetchedAt).toISOString() : null,
     });
   }
@@ -319,10 +330,18 @@ function lanAddresses() {
 }
 
 async function main() {
-  API_KEY = await resolveApiKey(CONFIG, PROJECT_DIR);
+  // Warm the cache first so we can report which source is in use.
+  await refresh().catch(() => {});
 
   const token = CONFIG.authToken ? `?token=${encodeURIComponent(CONFIG.authToken)}` : '';
   const shownHost = CONFIG.host === '0.0.0.0' ? 'localhost' : CONFIG.host;
+
+  const sourceLine =
+    SOURCE.source === 'console'
+      ? `console session — exact, matches the web console (${SOURCE.detail})`
+      : SOURCE.source === 'key'
+        ? `api key — percents round down, may sit 1 below the console (${SOURCE.detail})`
+        : 'NOT FOUND — set OPENCODE_GO_API_KEY or add a console session';
 
   console.log(`\n  OpenCode Go usage widget  v${VERSION}`);
   console.log(`  ─────────────────────────────────────────────`);
@@ -330,14 +349,11 @@ async function main() {
   for (const addr of lanAddresses()) {
     console.log(`  network   http://${addr}:${CONFIG.port}/${token}`);
   }
-  console.log(`  key       ${API_KEY.key ? `found (${API_KEY.source})` : 'NOT FOUND — set OPENCODE_GO_API_KEY or config.json'}`);
+  console.log(`  source    ${sourceLine}`);
   console.log(`  cache     ${CONFIG.cacheSeconds}s server · ${CONFIG.clientRefreshSeconds}s page`);
   if (CONFIG.authToken) console.log(`  auth      token required (kept out of the URL after first load)`);
   console.log(`  ─────────────────────────────────────────────`);
   console.log(`  Ctrl-C to stop.\n`);
-
-  // Warm the cache so the first page load is instant (non-fatal if it fails).
-  refresh().catch(() => {});
 
   server.listen(CONFIG.port, CONFIG.host, () => {
     if (CONFIG.host === '0.0.0.0') {

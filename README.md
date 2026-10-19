@@ -326,45 +326,65 @@ widget never blanks out or shows a confident zero.
 
 ---
 
-## Why the widget can differ from the web console
+## Exact console numbers (console mode)
 
-Short version: **it reports what OpenCode's API returns, verbatim — and that API
-is coarser than the console.**
+By default the widget now reproduces the **web console's** arithmetic exactly, so
+you should not see any difference.
 
-Measured, not guessed. At 06:34 UTC the raw endpoint, called directly with no
-widget, no cache and no server involved, returned:
+Two data sources exist, and they do **not** agree:
 
-```json
-{"usage": {"rolling": {"percent": 4}, "weekly": {"percent": 1}}}
+| Source | What it returns | Rounding |
+|---|---|---|
+| `GET /zen/go/v1/usage` (API key) | whole percents, e.g. `percent: 5` | **floors** |
+| `GET /console/api/go/status` (console session) | exact `usedMicroCents` / `limitMicroCents` | **rounds** |
+
+Measured with the same instant:
+
+| window | exact | API key says | console shows | widget shows |
+|---|---|---|---|---|
+| Rolling | 6.88 % | 6 | **7** | **7** ✓ |
+| Weekly | 2.75 % | 2 | **3** | **3** ✓ |
+| Monthly | 47.83 % | 47 | **48** | **48** ✓ |
+
+The widget prefers the console session when one is available, computes
+`round(used / limit * 100)` — the same thing the console does — and falls back to
+the API key automatically if the session is missing or expired (with a note in
+the UI). It also shows the exact figures it used, e.g. `$0.83 of $12.00 · 6.88% exact`.
+
+**Why not just round up (`ceil`)?** Because the console rounds to *nearest*, not
+up. Weekly above is 2.75 % → the console says 3 and `ceil` also says 3, but a
+value like 2.33 % shows as **2** in the console while `ceil` would wrongly show
+**3**. Rounding up over-reports roughly half the time; reading the exact value
+and rounding it is correct every time.
+
+### Where the console session comes from
+
+The widget reuses the OAuth token the opencode CLI already stores in
+`opencode.db` (credentials with `metadata.orgID`), so there is nothing to set up
+locally. That token expires (roughly monthly) — running opencode refreshes it,
+and until then the widget quietly falls back to API-key values.
+
+To supply one explicitly instead:
+
+```bash
+export OPENCODE_CONSOLE_TOKEN='...'   # the console bearer token
+export OPENCODE_ORG_ID='wrk_...'      # from opencode.ai/console/<wrk_...>/go
 ```
 
-while the web console was showing **5%** and **2%**. A minute later the same raw
-endpoint returned `5` and `2`. Two things are going on:
+### On the Cloudflare Worker
 
-- **The endpoint returns whole numbers** (`percent` is an integer, never `4.6`).
-  The console reads the same meters through the console API, which exposes exact
-  `usedMicroCents` / `limitMicroCents`, so it can display a value the integer
-  endpoint hasn't rounded to yet.
-- **OpenCode caches quota server-side.** The maintainers note in the endpoint's
-  PR that they cache subscription quota for a few minutes, so the API can trail
-  the console.
+A Worker has no access to `opencode.db`, so it uses the API key (floored) unless
+you give it a console session:
 
-So the widget can read **at or slightly below** the console, by about one point,
-until the API catches up. Nothing is being mis-parsed or lost.
+```bash
+cd deploy/cloudflare-worker
+npx wrangler secret put OPENCODE_CONSOLE_TOKEN
+npx wrangler secret put OPENCODE_ORG_ID
+```
 
-What the widget does about it:
-
-- The server/edge cache is only **15–20 s**, down from 60 s, and exists purely to
-  collapse bursts when several devices poll at once. It no longer adds any
-  noticeable lag of its own.
-- The footer reports the **true** data age (`updated 12s ago`), and tapping ↻
-  bypasses the cache and fetches live.
-
-If you need numbers that match the console exactly, the fix is to read the
-console's own endpoint — `GET https://opencode.ai/console/api/go/status` with
-`x-org-id: wrk_…` and your `__Host-console_session` cookie, which returns exact
-micro-cent amounts. That trades key-based auth for a browser cookie that
-expires, which is why it isn't the default.
+Note the trade-off: that token is a session credential that expires, so you'd
+re-upload it periodically. Without it the Worker stays accurate to within one
+point and says so.
 
 ## Behavior notes
 

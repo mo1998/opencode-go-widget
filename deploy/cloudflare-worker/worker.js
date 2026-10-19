@@ -10,6 +10,9 @@
  */
 
 const ENDPOINT = 'https://opencode.ai/zen/go/v1/usage';
+const CONSOLE_ENDPOINT = 'https://opencode.ai/console/api/go/status';
+const USER_AGENT =
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36';
 
 // Keep this short. The cache exists only to collapse bursts from several
 // devices polling at once — NOT to save upstream load. Cloudflare's Cache API
@@ -80,6 +83,45 @@ function worstPercent(usage) {
   return values.length ? Math.max(...values) : 0;
 }
 
+/**
+ * The console endpoint returns exact micro-cent amounts; the key endpoint
+ * returns whole percents and floors them. Recomputing from micro-cents with
+ * rounding reproduces exactly what the web console displays.
+ */
+function parseConsoleMeters(payload) {
+  const access = payload && payload.access;
+  const meters = access && access.meters;
+  if (!meters || typeof meters !== 'object') throw new Error('schema');
+
+  const windowKeys = { rolling: 'fiveHour', weekly: 'week', monthly: 'month' };
+  const usage = {};
+  const exact = {};
+
+  for (const [name, meterKey] of Object.entries(windowKeys)) {
+    const meter = meters[meterKey];
+    if (!meter) {
+      usage[name] = null;
+      continue;
+    }
+    const used = Number(meter.usedMicroCents);
+    const limit = Number(meter.limitMicroCents);
+    const percent = limit > 0 ? (used / limit) * 100 : 0;
+    usage[name] = {
+      status: 'ok',
+      percent: Math.round(percent),
+      resetsAt: meter.resetsAt ? new Date(meter.resetsAt).toISOString() : null,
+    };
+    exact[name] = {
+      percent: Math.round(percent * 100) / 100,
+      used: used / 1e8,
+      limit: limit / 1e8,
+      currency: 'USD',
+    };
+  }
+
+  return { usage, exact, periodEndsAt: access.endsAt || null };
+}
+
 // ---------------------------------------------------------------------------
 // cache
 // ---------------------------------------------------------------------------
@@ -126,7 +168,11 @@ async function fetchUsage(env) {
   let response;
   try {
     response = await fetch(ENDPOINT, {
-      headers: { Authorization: `Bearer ${env.OPENCODE_GO_API_KEY}`, Accept: 'application/json' },
+      headers: {
+        Authorization: `Bearer ${env.OPENCODE_GO_API_KEY}`,
+        Accept: 'application/json',
+        'User-Agent': USER_AGENT,
+      },
       signal: controller.signal,
     });
   } catch {
@@ -171,6 +217,63 @@ async function fetchUsage(env) {
   }
 }
 
+async function fetchConsole(env) {
+  const token = env.OPENCODE_CONSOLE_TOKEN;
+  const orgId = env.OPENCODE_ORG_ID;
+  if (!token || !orgId) {
+    const err = new Error('No console session configured');
+    err.code = 'console-auth';
+    throw err;
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  let response;
+  try {
+    response = await fetch(CONSOLE_ENDPOINT, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'x-org-id': orgId,
+        Accept: 'application/json',
+        'User-Agent': USER_AGENT,
+      },
+      signal: controller.signal,
+    });
+  } catch {
+    const err = new Error('Network error reaching the console');
+    err.code = 'network';
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!response.ok) {
+    const err = new Error(
+      response.status === 401 || response.status === 403
+        ? `Console session rejected (${response.status}) — refresh OPENCODE_CONSOLE_TOKEN`
+        : `Console request failed (${response.status})`,
+    );
+    err.code = 'console-auth';
+    throw err;
+  }
+
+  let payload;
+  try {
+    payload = await response.json();
+  } catch {
+    const err = new Error('Console response was not valid JSON');
+    err.code = 'schema';
+    throw err;
+  }
+  try {
+    return parseConsoleMeters(payload);
+  } catch {
+    const err = new Error('Console response schema did not match');
+    err.code = 'schema';
+    throw err;
+  }
+}
+
 function withAge(body) {
   const fetched = body && body.fetchedAt ? Date.parse(body.fetchedAt) : NaN;
   return {
@@ -186,23 +289,52 @@ async function getSnapshot(env, { force = false } = {}) {
     if (fresh) return withAge(fresh);
   }
 
+  const hasConsole = Boolean(env.OPENCODE_CONSOLE_TOKEN && env.OPENCODE_ORG_ID);
+
   try {
-    const usage = await fetchUsage(env);
+    let usage = null;
+    let exact = null;
+    let periodEndsAt = null;
+    let source = 'key';
+    let sourceDetail = 'OPENCODE_GO_API_KEY secret';
+    let note = null;
+
+    if (hasConsole) {
+      try {
+        const result = await fetchConsole(env);
+        usage = result.usage;
+        exact = result.exact;
+        periodEndsAt = result.periodEndsAt;
+        source = 'console';
+        sourceDetail = 'OPENCODE_CONSOLE_TOKEN secret';
+      } catch (err) {
+        note = `Console session unavailable (${err.message}); showing API percents, which round down.`;
+      }
+    }
+
+    if (!usage) usage = await fetchUsage(env);
+
     const body = {
       usage,
+      exact,
+      periodEndsAt,
+      source,
+      sourceDetail,
+      note,
       fetchedAt: new Date().toISOString(),
       ageSeconds: 0,
       stale: false,
       error: null,
       errorCode: null,
       worstPercent: worstPercent(usage),
-      hasKey: Boolean(env.OPENCODE_GO_API_KEY),
-      keySource: 'worker secret',
+      hasKey: Boolean(env.OPENCODE_GO_API_KEY || hasConsole),
+      keySource: sourceDetail,
     };
     await writeCache('fresh', FRESH_TTL, body);
     await writeCache('lastgood', LAST_GOOD_TTL, body);
     return body;
   } catch (err) {
+    const hasAnyKey = Boolean(env.OPENCODE_GO_API_KEY || hasConsole);
     const lastGood = await readCache('lastgood');
     if (lastGood) {
       return {
@@ -210,19 +342,24 @@ async function getSnapshot(env, { force = false } = {}) {
         stale: true,
         error: err.message,
         errorCode: err.code || 'error',
-        hasKey: Boolean(env.OPENCODE_GO_API_KEY),
+        hasKey: hasAnyKey,
       };
     }
     return {
       usage: null,
+      exact: null,
+      periodEndsAt: null,
+      source: hasConsole ? 'console' : 'key',
+      sourceDetail: null,
+      note: null,
       fetchedAt: null,
       ageSeconds: null,
       stale: false,
       error: err.message,
       errorCode: err.code || 'error',
       worstPercent: null,
-      hasKey: Boolean(env.OPENCODE_GO_API_KEY),
-      keySource: 'worker secret',
+      hasKey: hasAnyKey,
+      keySource: hasConsole ? 'OPENCODE_CONSOLE_TOKEN secret' : 'OPENCODE_GO_API_KEY secret',
     };
   }
 }
@@ -243,13 +380,20 @@ export default {
     if (!authorized(request, url, env)) return json({ error: 'Unauthorized' }, 401);
 
     switch (url.pathname) {
-      case '/api/health':
+      case '/api/health': {
+        const consoleReady = Boolean(env.OPENCODE_CONSOLE_TOKEN && env.OPENCODE_ORG_ID);
         return json({
           ok: true,
           version: '1.0.0',
-          hasKey: Boolean(env.OPENCODE_GO_API_KEY),
-          keySource: 'worker secret',
+          hasKey: Boolean(env.OPENCODE_GO_API_KEY || consoleReady),
+          source: consoleReady ? 'console' : env.OPENCODE_GO_API_KEY ? 'key' : null,
+          keySource: consoleReady
+            ? 'OPENCODE_CONSOLE_TOKEN secret'
+            : env.OPENCODE_GO_API_KEY
+              ? 'OPENCODE_GO_API_KEY secret'
+              : null,
         });
+      }
 
       case '/api/config':
         return json({

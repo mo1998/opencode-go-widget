@@ -1,21 +1,19 @@
 {
   "//": "Copy to config.json (same folder) or ~/.config/opencode-widget/config.json. Every field is optional.",
-
   "host": "0.0.0.0",
   "port": 8787,
-
   "//apiKey": "Leave empty to auto-detect from your opencode install (env, auth.json, or the opencode v2 database).",
+  "//consoleToken": "Optional console session token. Leave empty to auto-detect from opencode.db (exact, matches the web console).",
+  "consoleToken": "",
+  "//consoleOrgId": "Workspace id wrk_... \u2014 required alongside consoleToken.",
+  "consoleOrgId": "",
   "apiKey": "",
-
   "//authToken": "Optional shared secret. If set, the page and API require ?token=... (the browser remembers it). Leave empty for an open LAN service.",
   "authToken": "",
-
   "//cacheSeconds": "Server-side cache TTL. Keep it short (15-30s) or the widget will trail the web console. It only exists to collapse bursts from several devices.",
   "cacheSeconds": 20,
-
   "//clientRefreshSeconds": "How often the web page re-fetches from this server.",
   "clientRefreshSeconds": 30,
-
   "//endpoint": "Override only if OpenCode changes the usage route.",
   "endpoint": "https://opencode.ai/zen/go/v1/usage"
 }

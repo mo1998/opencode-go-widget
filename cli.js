@@ -12,12 +12,10 @@
  */
 
 const {
-  DEFAULT_ENDPOINT,
   UsageError,
+  fetchUsageSmart,
   formatBar,
   formatCountdown,
-  resolveApiKey,
-  fetchUsage,
   worstPercent,
 } = require('./lib/usage');
 
@@ -53,7 +51,7 @@ function colorize(sev, text) {
   return c.green(text);
 }
 
-function render(usage) {
+function render(usage, exact) {
   const lines = [];
   lines.push('');
   lines.push(`  ${c.bold('OpenCode Go usage')}`);
@@ -68,9 +66,11 @@ function render(usage) {
     const bar = formatBar(w.percent, 20);
     const reset = `resets in ${formatCountdown(w.resetsAt)}`;
     const limited = w.status !== 'ok' ? ` ${c.red('[limited]')}` : '';
+    const e = exact && exact[win.key];
+    const money = e ? `  ${c.dim(`$${e.used.toFixed(2)}/$${e.limit.toFixed(2)}`)}` : '';
     lines.push(
       `  ${win.name}  ${colorize(severity(w.percent, w.status), bar)} ` +
-        `${c.bold(pct)}  ${c.dim(reset)}${limited}`,
+        `${c.bold(pct)}  ${c.dim(reset)}${limited}${money}`,
     );
   }
   lines.push('');
@@ -87,28 +87,55 @@ function renderCompact(usage) {
   return `Go ${parts.join(' · ')}`;
 }
 
+function sourceLine(result) {
+  if (result.source === 'console') {
+    return c.dim(`  source: console session — exact, matches the web console`);
+  }
+  if (result.source === 'key') {
+    return c.dim(
+      `  source: api key — percents round down, may sit 1 below the console`,
+    );
+  }
+  return c.dim(`  source: ${result.source || 'unknown'}`);
+}
+
 async function once() {
-  const { key, source } = await resolveApiKey({}, PROJECT_DIR);
+  const result = await fetchUsageSmart({ projectDir: PROJECT_DIR });
 
   if (has('--source')) {
-    console.log(key ? `key found: ${source}` : 'key: NOT FOUND');
-    if (!key) return 1;
+    console.log(`source: ${result.source}`);
+    console.log(`detail: ${result.sourceDetail}`);
+    if (!result.usage) return 1;
   }
 
-  const usage = await fetchUsage({ apiKey: key, endpoint: DEFAULT_ENDPOINT });
-
   if (has('--json')) {
-    console.log(JSON.stringify({ usage, worstPercent: worstPercent(usage), source }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          usage: result.usage,
+          exact: result.exact,
+          periodEndsAt: result.periodEndsAt,
+          source: result.source,
+          sourceDetail: result.sourceDetail,
+          worstPercent: result.usage ? worstPercent(result.usage) : null,
+        },
+        null,
+        2,
+      ),
+    );
   } else if (has('--compact')) {
-    console.log(renderCompact(usage));
+    console.log(renderCompact(result.usage));
   } else {
-    console.log(render(usage));
+    console.log(render(result.usage, result.exact));
+    console.log(sourceLine(result));
+    if (result.note) console.log(c.yellow(`  note: ${result.note}`));
+    console.log('');
   }
   return 0;
 }
 
 async function watch() {
-  const intervalMs = 30000;
+  const intervalMs = 15000;
   process.stdout.write('\x1b[?25l'); // hide cursor
   const cleanup = () => {
     process.stdout.write('\x1b[?25h\n'); // restore cursor
@@ -118,12 +145,15 @@ async function watch() {
   process.on('SIGTERM', cleanup);
 
   for (;;) {
-    const { key } = await resolveApiKey({}, PROJECT_DIR);
     process.stdout.write('\x1b[2J\x1b[H');
     try {
-      const usage = await fetchUsage({ apiKey: key, endpoint: DEFAULT_ENDPOINT });
-      console.log(render(usage));
-      console.log(`  ${c.dim(`updated ${new Date().toLocaleTimeString()} · refreshing every ${intervalMs / 1000}s · Ctrl-C to quit`)}`);
+      const result = await fetchUsageSmart({ projectDir: PROJECT_DIR });
+      console.log(render(result.usage, result.exact));
+      console.log(sourceLine(result));
+      if (result.note) console.log(c.yellow(`  note: ${result.note}`));
+      console.log(
+        `  ${c.dim(`updated ${new Date().toLocaleTimeString()} · refreshing every ${intervalMs / 1000}s · Ctrl-C to quit`)}`,
+      );
     } catch (err) {
       console.log(`  ${c.red(err.message)}`);
       console.log(`  ${c.dim('retrying…')}`);
