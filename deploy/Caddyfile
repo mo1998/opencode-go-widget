@@ -1,0 +1,23 @@
+# Reverse proxy with automatic HTTPS (Let's Encrypt).
+# Point a DNS A/AAAA record at the host first, then:
+#
+#   sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
+#   sudo systemctl reload caddy
+#
+# Replace the hostname below with your own.
+
+go.example.com {
+	encode zstd gzip
+
+	reverse_proxy 127.0.0.1:8787 {
+		# The widget's own API already returns no-store; let Caddy pass it through.
+		header_up X-Forwarded-Proto {scheme}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+}

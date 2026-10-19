@@ -1,0 +1,40 @@
+# Run the widget on any always-on Linux box (VPS, home server, Pi, SSH dev box).
+#
+#   export OPENCODE_GO_API_KEY=oc_sk_...
+#   export WIDGET_TOKEN=$(openssl rand -hex 16)   # optional but recommended
+#   docker compose up -d --build
+#
+# It binds to 127.0.0.1 only. Put Caddy (deploy/Caddyfile), a Cloudflare
+# Tunnel, or Tailscale in front of it — never publish 8787 straight to the
+# internet with a usage-capable key behind it.
+
+services:
+  widget:
+    build: .
+    container_name: opencode-go-widget
+    restart: unless-stopped
+    environment:
+      OPENCODE_GO_API_KEY: ${OPENCODE_GO_API_KEY:?set OPENCODE_GO_API_KEY first}
+      WIDGET_TOKEN: ${WIDGET_TOKEN:-}
+      WIDGET_HOST: 0.0.0.0
+      WIDGET_PORT: 8787
+      WIDGET_CACHE_SECONDS: ${WIDGET_CACHE_SECONDS:-60}
+      WIDGET_CLIENT_REFRESH_SECONDS: ${WIDGET_CLIENT_REFRESH_SECONDS:-30}
+    ports:
+      # localhost only. For direct LAN access use "8787:8787" and firewall it.
+      - "127.0.0.1:8787:8787"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8787/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

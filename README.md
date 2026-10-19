@@ -100,6 +100,109 @@ journalctl --user -u opencode-go-widget -f
 
 ---
 
+## Hosting it 24/7 (laptop closed)
+
+**The widget is only a viewer.** OpenCode tallies your usage server-side, so
+nothing is lost when your laptop sleeps — you just can't reach a process running
+inside WSL. Every option below moves the *viewer* to something that stays up.
+
+| Option | Always on | Needs a domain | Cost | Best when |
+|---|---|---|---|---|
+| **A. Tailscale on an always-on box** | yes | no | box only | you have a VPS / Pi / SSH dev box |
+| **B. VPS + Docker + Caddy** | yes | yes | ~$4–6/mo | you want a real URL + HTTPS |
+| **C. Cloudflare Worker** | yes | no | free | you own no hardware at all |
+| **D. Keep the laptop awake** | no | no | — | you only meant "lid closed", not "off" |
+
+> Closing the lid on Windows almost always **suspends** the machine, which stops
+> WSL2 entirely. No config change makes WSL survive that.
+
+### A. Tailscale — recommended if you already have a server
+
+Works on your VPS, home server, Raspberry Pi, or that always-on SSH dev box. No
+public exposure, no certificates, no firewall changes.
+
+```bash
+# on the server
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+git clone <this repo> ~/OpencodeWidget && cd ~/OpencodeWidget
+./scripts/install-service.sh          # systemd user service
+tailscale ip -4                        # e.g. 100.101.102.103
+```
+
+Install Tailscale on your phone too, then open `http://100.101.102.103:8787/`.
+The Tunnel is encrypted end-to-end by Tailscale, so plain HTTP is fine here.
+
+### B. Docker on a VPS with a public URL
+
+```bash
+# on the VPS
+git clone <this repo> ~/OpencodeWidget && cd ~/OpencodeWidget
+export OPENCODE_GO_API_KEY=oc_sk_...
+export WIDGET_TOKEN=$(openssl rand -hex 16)
+docker compose up -d --build
+
+sudo cp deploy/Caddyfile /etc/caddy/Caddyfile   # edit the hostname first
+sudo systemctl reload caddy
+```
+
+The compose file binds to `127.0.0.1` only; Caddy terminates HTTPS in front of
+it. Full details in `deploy/Caddyfile`.
+
+Use a Cloudflare Tunnel instead of opening ports, if you prefer:
+
+```bash
+cloudflared tunnel create ocw
+cloudflared tunnel route dns ocw go.example.com
+cloudflared tunnel run --url http://127.0.0.1:8787 ocw
+```
+
+**In a container the widget can't read your opencode database**, so the key must
+come from the environment (`OPENCODE_GO_API_KEY`) — that's why it's required in
+`docker-compose.yml`.
+
+### C. Cloudflare Worker — nothing to keep running
+
+Deploy once, get a `*.workers.dev` HTTPS URL, view it from anywhere. Static
+assets are free; the API is one subrequest per refresh.
+
+```bash
+cd deploy/cloudflare-worker
+npx wrangler login
+npx wrangler secret put OPENCODE_GO_API_KEY
+npx wrangler secret put AUTH_TOKEN          # optional
+npx wrangler deploy
+```
+
+It serves the same UI from `public/` and caches at the edge for 60 s, so a
+glance from your phone costs a fraction of a request. Free plan = 100k
+requests/day, which is a lot of glances.
+
+If `wrangler` refuses the asset path pointing outside its own folder, copy the
+UI next to the worker and shorten the path in `wrangler.toml`:
+
+```bash
+cp -r ../../public ./public   # then set directory = "public"
+```
+
+### D. Keeping WSL awake instead
+
+If you literally only close the lid while plugged in, tell Windows to keep
+running: **Power Options → Choose what closing the lid does → Do nothing**, and
+disable sleep while plugged in. Then `./scripts/install-service.sh` keeps the
+widget alive for as long as Windows stays awake. This burns power and defeats
+the point of a laptop; prefer A or C.
+
+### Before you expose it
+
+- Set `authToken` / `AUTH_TOKEN` (or front it with Tailscale). The usage
+  endpoint needs a key that can read your subscription.
+- A `403` with "no active Go plan" usually means the key isn't the Go one.
+- `cacheSeconds` floors at 5 s — the API is a three-table join, so don't poll it
+  like a heartbeat.
+
+---
+
 ## Your API key
 
 The widget reuses the key opencode already has. It looks in this order:
@@ -242,5 +345,9 @@ lib/usage.js                  key detection + usage fetching + formatting
 public/                       the web UI (no build step)
 scripts/install-service.sh    systemd user service
 scripts/windows-portproxy.ps1 WSL2 → LAN port forward for phones
+Dockerfile                    container image for an always-on host
+docker-compose.yml            compose service (binds to 127.0.0.1)
+deploy/Caddyfile              HTTPS reverse proxy example
+deploy/cloudflare-worker/     serverless edition (no machine needed)
 config.example.json           copy to config.json
 ```

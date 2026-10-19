@@ -1,0 +1,15 @@
+name = "opencode-go-widget"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+# Reuse the exact same UI as the Node server.
+[assets]
+directory = "../../public"
+binding = "ASSETS"
+
+[vars]
+CLIENT_REFRESH_SECONDS = "30"
+
+# Secrets (set with `wrangler secret put`, never commit them):
+#   OPENCODE_GO_API_KEY  required
+#   AUTH_TOKEN           optional shared secret
