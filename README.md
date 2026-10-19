@@ -375,7 +375,9 @@ expires, which is why it isn't the default.
 - **Unofficial endpoint:** `/zen/go/v1/usage` powers the OpenCode console but is
   not in the public Go docs. If it changes, the widget reports the failure
   rather than inventing numbers.
-- **Account-wide:** percentages are for the whole subscription, not per device.
+- **Account-wide:** percentages are for the whole subscription. The Go meters
+  are aggregate — they include every identity spending on the workspace, not
+  per device and not per user. There is no per-user meter to miss.
 
 ---
 
